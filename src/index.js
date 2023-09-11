@@ -92,6 +92,7 @@ function Version(model, customOptions) {
     exclude,
     tableUnderscored,
     underscored,
+    noHooks,
   } = options;
 
   if (isEmpty(prefix) && isEmpty(suffix)) {
@@ -111,7 +112,9 @@ function Version(model, customOptions) {
   const versionFieldTimestamp = `${attributePrefix}${
     underscored ? '_t' : 'T'
   }imestamp`;
-  const versionModelName = `${capitalize(prefix)}${capitalize(model.name)}${capitalize(suffix)}`;
+  const versionModelName = `${capitalize(prefix)}${capitalize(
+    model.name
+  )}${capitalize(suffix)}`;
 
   const versionAttrs = {
     [versionFieldId]: {
@@ -144,35 +147,37 @@ function Version(model, customOptions) {
     versionModelOptions
   );
 
-  hooks.forEach(hook => {
-    model.addHook(hook, (instanceData, { transaction }) => {
-      const cls = namespace || Sequelize.cls;
+  if (!noHooks) {
+    hooks.forEach(hook => {
+      model.addHook(hook, (instanceData, { transaction }) => {
+        const cls = namespace || Sequelize.cls;
 
-      let versionTransaction;
+        let versionTransaction;
 
-      if (sequelize === model.sequelize) {
-        versionTransaction = cls
-          ? cls.get('transaction') || transaction
-          : transaction;
-      } else {
-        versionTransaction = cls ? cls.get('transaction') : undefined;
-      }
+        if (sequelize === model.sequelize) {
+          versionTransaction = cls
+            ? cls.get('transaction') || transaction
+            : transaction;
+        } else {
+          versionTransaction = cls ? cls.get('transaction') : undefined;
+        }
 
-      const versionType = getVersionType(hook);
-      const instancesData = toArray(instanceData);
+        const versionType = getVersionType(hook);
+        const instancesData = toArray(instanceData);
 
-      const versionData = instancesData.map(data => {
-        return Object.assign({}, clone(data), {
-          [versionFieldType]: versionType,
-          [versionFieldTimestamp]: new Date(),
+        const versionData = instancesData.map(data => {
+          return Object.assign({}, clone(data), {
+            [versionFieldType]: versionType,
+            [versionFieldTimestamp]: new Date(),
+          });
+        });
+
+        return versionModel.bulkCreate(versionData, {
+          transaction: versionTransaction,
         });
       });
-
-      return versionModel.bulkCreate(versionData, {
-        transaction: versionTransaction,
-      });
     });
-  });
+  }
 
   versionModel.addScope('created', {
     where: { [versionFieldType]: VersionType.CREATED },
@@ -189,10 +194,8 @@ function Version(model, customOptions) {
   function getVersions(params) {
     let versionParams = {};
     const modelAttributes = model.rawAttributes || model.attributes;
-    const primaryKeys = Object.keys(
-      modelAttributes
-    ).filter(
-      attr => (modelAttributes)[attr].primaryKey
+    const primaryKeys = Object.keys(modelAttributes).filter(
+      attr => modelAttributes[attr].primaryKey
     );
 
     if (primaryKeys.length) {
@@ -221,7 +224,7 @@ function Version(model, customOptions) {
     }
 
     //Sequelize V3 and below
-  } else {
+  } else if (!noHooks) {
     const hooksForBind = hooks.concat([Hook.AFTER_SAVE]);
 
     hooksForBind.forEach(hook => {
